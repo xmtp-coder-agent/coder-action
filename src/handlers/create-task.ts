@@ -13,9 +13,6 @@ export interface IssueContext {
 	senderLogin: string;
 }
 
-const DEFAULT_PROMPT =
-	"Resolve the GitHub issue linked below. Read the issue, develop a plan, post it as a comment, then implement and open a PR.";
-
 export class CreateTaskHandler {
 	constructor(
 		private readonly coder: CoderClient,
@@ -25,6 +22,12 @@ export class CreateTaskHandler {
 	) {}
 
 	async run(): Promise<ActionOutputs> {
+		// coderUsername is always resolved for create_task before this handler runs
+		const coderUsername = this.inputs.coderUsername;
+		if (!coderUsername) {
+			throw new Error("coderUsername is required for create_task");
+		}
+
 		// 1. Validate actor has write access to the repo
 		const hasAccess = await this.github.checkActorPermission(
 			this.context.owner,
@@ -48,10 +51,7 @@ export class CreateTaskHandler {
 
 		// 3. Check existing task
 		const parsedName = TaskNameSchema.parse(taskName);
-		const existingTask = await this.coder.getTask(
-			this.inputs.coderUsername,
-			parsedName,
-		);
+		const existingTask = await this.coder.getTask(coderUsername, parsedName);
 
 		if (existingTask) {
 			core.info(
@@ -63,13 +63,16 @@ export class CreateTaskHandler {
 				existingTask.current_state?.state !== "idle"
 			) {
 				await this.coder.waitForTaskActive(
-					this.inputs.coderUsername,
+					coderUsername,
 					existingTask.id,
 					core.debug,
 				);
 			}
 
-			const taskUrl = this.generateTaskUrl(String(existingTask.id));
+			const taskUrl = this.generateTaskUrl(
+				coderUsername,
+				String(existingTask.id),
+			);
 			return {
 				taskName,
 				taskUrl,
@@ -79,8 +82,9 @@ export class CreateTaskHandler {
 		}
 
 		// 4. Build prompt
-		const promptText = this.inputs.prompt ?? DEFAULT_PROMPT;
-		const fullPrompt = `${promptText}\n\n${this.context.issueUrl}`;
+		const fullPrompt = this.inputs.prompt
+			? `${this.inputs.prompt}\n\n${this.context.issueUrl}`
+			: this.context.issueUrl;
 
 		// 5. Get template and create task
 		const template = await this.coder.getTemplateByOrganizationAndName(
@@ -104,14 +108,14 @@ export class CreateTaskHandler {
 			presetId = defaultPreset?.ID;
 		}
 
-		const createdTask = await this.coder.createTask(this.inputs.coderUsername, {
+		const createdTask = await this.coder.createTask(coderUsername, {
 			name: taskName,
 			template_version_id: template.active_version_id,
 			template_version_preset_id: presetId,
 			input: fullPrompt,
 		});
 
-		const taskUrl = this.generateTaskUrl(String(createdTask.id));
+		const taskUrl = this.generateTaskUrl(coderUsername, String(createdTask.id));
 		core.info(`Task created: ${taskUrl}`);
 
 		// 6. Comment on issue
@@ -131,8 +135,8 @@ export class CreateTaskHandler {
 		};
 	}
 
-	private generateTaskUrl(taskId: string): string {
+	private generateTaskUrl(coderUsername: string, taskId: string): string {
 		const baseURL = this.inputs.coderURL.replace(/\/$/, "");
-		return `${baseURL}/tasks/${this.inputs.coderUsername}/${taskId}`;
+		return `${baseURL}/tasks/${coderUsername}/${taskId}`;
 	}
 }

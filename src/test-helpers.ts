@@ -70,6 +70,7 @@ export class MockCoderClient implements CoderClient {
 	);
 	stopWorkspace = mock(() => Promise.resolve());
 	deleteWorkspace = mock(() => Promise.resolve());
+	deleteTask = mock(() => Promise.resolve());
 }
 
 // ── Mock GitHub Client ──────────────────────────────────────────────────────
@@ -102,5 +103,6 @@ export function createMockGitHubClient(): {
 			Promise.resolve([{ id: 1, name: "test", conclusion: "failure" }]),
 		),
 		getJobLogs: mock(() => Promise.resolve("Error: test failed")),
+		addReactionToComment: mock(() => Promise.resolve()),
 	} as unknown as { [K in keyof GitHubClient]: ReturnType<typeof mock> };
 }
